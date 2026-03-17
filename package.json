@@ -1,14 +1,14 @@
 {
   "name": "@omericin/todo-cli",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/omericin/todo-cli.git",
-    "bugs": {
-      "url": "https://github.com/omericin/todo-cli/issues"
-    },
-    "homepage": "https://github.com/omericin/todo-cli#readme"
   },
+  "bugs": {
+    "url": "https://github.com/omericin/todo-cli/issues"
+  },
+  "homepage": "https://github.com/omericin/todo-cli#readme",
   "description": "A high performance, minimalist todo cli",
   "main": "index.js",
   "scripts": {
