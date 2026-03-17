@@ -3,7 +3,7 @@
   "version": "1.1.2",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/omericin/todo-cli.git",
+    "url": "git+https://github.com/omericin/todo-cli.git"
   },
   "bugs": {
     "url": "https://github.com/omericin/todo-cli/issues"
