@@ -7,11 +7,21 @@ export interface Task {
     text: string;
     completed: boolean;
     priority: 'normal' | 'high';
+    group?: string;
+}
+
+export interface GroupInfo {
+    collapsed: boolean;
+}
+
+export interface TabData {
+    tasks: Task[];
+    groups: Record<string, GroupInfo>;
+    activeGroup?: string;
 }
 
 export interface ConfigData {
-    tasks?: Task[]; // kept for migration purposes
-    tabs: Record<string, Task[]>;
+    tabs: Record<string, TabData>;
     activeTab: string;
     config: {
         useNerdFonts: boolean;
@@ -23,9 +33,12 @@ export const storage = new Conf<ConfigData>({
     configName: '.my-todo-list',
     fileExtension: 'json',
     defaults: {
-        tasks: [],
         tabs: {
-            'default': []
+            'default': {
+                tasks: [],
+                groups: {},
+                activeGroup: undefined
+            }
         },
         activeTab: 'default',
         config: {
@@ -34,15 +47,34 @@ export const storage = new Conf<ConfigData>({
     }
 });
 
-// Migration logic: move old tasks to the default tab if needed
-if (storage.has('tasks')) {
-    const oldTasks = storage.get('tasks') as Task[];
+// Migration logic
+const rawTabs = storage.get('tabs') as any;
+if (rawTabs) {
+    let migrated = false;
+    for (const key of Object.keys(rawTabs)) {
+        if (Array.isArray(rawTabs[key])) {
+            rawTabs[key] = {
+                tasks: rawTabs[key],
+                groups: {},
+                activeGroup: undefined
+            };
+            migrated = true;
+        }
+    }
+    if (migrated) {
+        storage.set('tabs', rawTabs);
+    }
+}
+
+// Old migration logic for even older versions
+if (storage.has('tasks' as any)) {
+    const oldTasks = storage.get('tasks' as any) as Task[];
     if (oldTasks && oldTasks.length > 0) {
-        const tabs = storage.get('tabs') || {};
+        const tabs = storage.get('tabs');
         if (!tabs['default']) {
-            tabs['default'] = oldTasks;
-        } else if (tabs['default'].length === 0) {
-            tabs['default'] = oldTasks;
+            tabs['default'] = { tasks: oldTasks, groups: {}, activeGroup: undefined };
+        } else if (tabs['default'].tasks.length === 0) {
+            tabs['default'].tasks = oldTasks;
         }
         storage.set('tabs', tabs);
     }
@@ -58,26 +90,95 @@ export function setActiveTab(tab: string): void {
     // ensure tab exists
     const tabs = getTabs();
     if (!tabs[tab]) {
-        tabs[tab] = [];
+        tabs[tab] = {
+            tasks: [],
+            groups: {},
+            activeGroup: undefined
+        };
         storage.set('tabs', tabs);
     }
 }
 
-export function getTabs(): Record<string, Task[]> {
-    return storage.get('tabs') || { 'default': [] };
+export function getTabs(): Record<string, TabData> {
+    return storage.get('tabs') || { 'default': { tasks: [], groups: {}, activeGroup: undefined } };
 }
 
 export function getTasks(): Task[] {
     const tabs = getTabs();
     const active = getActiveTab();
-    return tabs[active] || [];
+    return tabs[active]?.tasks || [];
 }
 
 export function saveTasks(tasks: Task[]): void {
     const tabs = getTabs();
     const active = getActiveTab();
-    tabs[active] = tasks;
-    storage.set('tabs', tabs);
+    if (tabs[active]) {
+        tabs[active].tasks = tasks;
+        storage.set('tabs', tabs);
+    }
+}
+
+export function getGroups(): Record<string, GroupInfo> {
+    const tabs = getTabs();
+    const active = getActiveTab();
+    return tabs[active]?.groups || {};
+}
+
+export function saveGroups(groups: Record<string, GroupInfo>): void {
+    const tabs = getTabs();
+    const active = getActiveTab();
+    if (tabs[active]) {
+        tabs[active].groups = groups;
+        storage.set('tabs', tabs);
+    }
+}
+
+export function getActiveGroup(): string | undefined {
+    const tabs = getTabs();
+    const active = getActiveTab();
+    return tabs[active]?.activeGroup;
+}
+
+export function setActiveGroup(groupName: string | undefined): void {
+    const tabs = getTabs();
+    const active = getActiveTab();
+    if (tabs[active]) {
+        tabs[active].activeGroup = groupName;
+        // ensure group exists in groups record
+        if (groupName && !tabs[active].groups[groupName]) {
+            tabs[active].groups[groupName] = { collapsed: false };
+        }
+        storage.set('tabs', tabs);
+    }
+}
+
+export function setGroupCollapsed(groupName: string, collapsed: boolean): void {
+    const groups = getGroups();
+    if (!groups[groupName]) {
+        groups[groupName] = { collapsed };
+    } else {
+        groups[groupName].collapsed = collapsed;
+    }
+    saveGroups(groups);
+}
+
+export function deleteGroup(groupName: string): void {
+    const tabs = getTabs();
+    const active = getActiveTab();
+    if (tabs[active]) {
+        // Remove from groups record
+        delete tabs[active].groups[groupName];
+
+        // Remove tasks in this group
+        tabs[active].tasks = tabs[active].tasks.filter(t => t.group !== groupName);
+
+        // Handle active group
+        if (tabs[active].activeGroup === groupName) {
+            tabs[active].activeGroup = undefined;
+        }
+
+        storage.set('tabs', tabs);
+    }
 }
 
 export function getAllTabNames(): string[] {
@@ -109,7 +210,7 @@ export function renameTab(oldName: string, newName: string): boolean {
     storage.set('tabs', tabs);
 
     if (getActiveTab() === oldName) {
-        setActiveTab(newName);
+        storage.set('activeTab', newName);
     }
 
     return true;

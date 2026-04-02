@@ -1,7 +1,21 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { getTasks, saveTasks, Task, getActiveTab, setActiveTab, getAllTabNames, deleteTab, renameTab } from './storage.js';
+import {
+    getTasks,
+    saveTasks,
+    Task,
+    getActiveTab,
+    setActiveTab,
+    getAllTabNames,
+    deleteTab,
+    renameTab,
+    getGroups,
+    getActiveGroup,
+    setActiveGroup,
+    setGroupCollapsed,
+    deleteGroup
+} from './storage.js';
 import { getIcon } from './theme.js';
 import { spawn } from 'child_process';
 import os from 'os';
@@ -18,6 +32,8 @@ program
 const listTasks = () => {
     const tabs = getAllTabNames();
     const activeTab = getActiveTab();
+    const groups = getGroups();
+    const activeGroup = getActiveGroup();
 
     const tabHeaders = tabs.map(t => {
         if (t === activeTab) {
@@ -30,12 +46,29 @@ const listTasks = () => {
     console.log(chalk.gray('─'.repeat(50)));
 
     const tasks = getTasks();
-    if (!tasks || tasks.length === 0) {
+    const groupNamesFromStorage = Object.keys(groups);
+
+    // Group tasks
+    const groupedTasks: Record<string, Task[]> = {};
+    const noGroupTasks: Task[] = [];
+
+    tasks.forEach(task => {
+        if (task.group) {
+            if (!groupedTasks[task.group]) groupedTasks[task.group] = [];
+            groupedTasks[task.group].push(task);
+        } else {
+            noGroupTasks.push(task);
+        }
+    });
+
+    const allGroupNames = Array.from(new Set([...Object.keys(groupedTasks), ...groupNamesFromStorage])).sort();
+
+    if (noGroupTasks.length === 0 && allGroupNames.length === 0) {
         console.log(chalk.gray(`No tasks in '${activeTab}'. Use \`todo add <task>\` to create one.`));
         return;
     }
 
-    tasks.forEach(task => {
+    const renderTask = (task: Task) => {
         let icon = getIcon(task.completed ? 'done' : (task.priority === 'high' ? 'urgent' : 'todo'));
         let text = task.text;
 
@@ -49,7 +82,26 @@ const listTasks = () => {
             icon = chalk.cyan(icon);
         }
 
-        console.log(`${chalk.gray(task.id + '.')} ${icon} ${text}`);
+        console.log(`  ${chalk.gray(task.id + '.')} ${icon} ${text}`);
+    };
+
+    // Render no-group tasks first
+    if (noGroupTasks.length > 0) {
+        noGroupTasks.forEach(renderTask);
+    }
+
+    // Render grouped tasks
+    allGroupNames.forEach(name => {
+        const collapsed = groups[name]?.collapsed || false;
+        const icon = collapsed ? '▶' : '▼';
+        const activeLabel = name === activeGroup ? chalk.dim(' (active)') : '';
+
+        console.log(`${chalk.yellow(icon)} ${chalk.bold(name)}${activeLabel}`);
+
+        if (!collapsed) {
+            const groupTasks = groupedTasks[name] || [];
+            groupTasks.forEach(renderTask);
+        }
     });
 };
 
@@ -59,27 +111,68 @@ program
     .action(listTasks);
 
 program
-    .command('add <task>')
-    .description('Adds a new task.')
+    .command('add [group] [task]')
+    .description('Adds a new task. If group is provided, task is added to that group.')
     .option('--high', 'Set priority to high')
-    .action((taskStr, options) => {
+    .action((groupOrTask: string, taskStr: string | undefined, options: { high?: boolean }) => {
+        let group: string | undefined;
+        let text: string;
+
+        // If two arguments are provided: todo add group "task text"
+        if (taskStr) {
+            group = groupOrTask;
+            text = taskStr;
+        } else {
+            // If only one argument: todo add "task text"
+            // Use activeGroup if it exists
+            group = getActiveGroup();
+            text = groupOrTask;
+        }
+
+        if (!text) {
+            console.log(chalk.red('Task text is required.'));
+            return;
+        }
+
         const tasks = getTasks() || [];
         const id = tasks.length > 0 ? Math.max(...tasks.map(t => t.id)) + 1 : 1;
         const newTask: Task = {
             id,
-            text: taskStr,
+            text,
             completed: false,
             priority: options.high ? 'high' : 'normal',
+            group: group || undefined
         };
+
         tasks.push(newTask);
         saveTasks(tasks);
-        console.log(chalk.green(`Task added: "${taskStr}"`));
+        console.log(chalk.green(`Task added to ${group ? `group '${group}'` : 'no group'}: "${text}"`));
+    });
+
+program
+    .command('group <name> [status]')
+    .alias('g')
+    .description('Manage groups. Sets active group or toggles open/close.')
+    .action((name: string, status: string | undefined) => {
+        if (!status) {
+            setActiveGroup(name);
+            console.log(chalk.green(`Active group set to: ${name}`));
+        } else if (status === 'open' || status === 'close') {
+            setGroupCollapsed(name, status === 'close');
+            console.log(chalk.green(`Group '${name}' is now ${status === 'close' ? 'closed' : 'opened'}.`));
+        } else if (status === 'rm' || status === 'delete') {
+            deleteGroup(name);
+            console.log(chalk.red(`Group '${name}' and its tasks removed.`));
+        } else {
+            console.log(chalk.red(`Invalid status: ${status}. Use 'open' or 'close'.`));
+        }
+        listTasks();
     });
 
 program
     .command('done <id>')
     .description('Marks task as completed.')
-    .action((idStr) => {
+    .action((idStr: string) => {
         const id = parseInt(idStr, 10);
         const tasks = getTasks() || [];
         const task = tasks.find(t => t.id === id);
@@ -98,7 +191,7 @@ program
     .alias('remove')
     .alias('del')
     .description('Removes a task.')
-    .action((idStr) => {
+    .action((idStr: string) => {
         const id = parseInt(idStr, 10);
         const tasks = getTasks() || [];
         const idx = tasks.findIndex(t => t.id === id);
@@ -114,7 +207,7 @@ program
 program
     .command('edit <id>')
     .description('Opens the specific task in the default editor (Vim/Nano).')
-    .action((idStr) => {
+    .action((idStr: string) => {
         const id = parseInt(idStr, 10);
         const tasks = getTasks() || [];
         const task = tasks.find(t => t.id === id);
@@ -145,7 +238,7 @@ program
 program
     .command('tab [name]')
     .description('Switch to a different tab or list tasks if no name provided.')
-    .action((name) => {
+    .action((name: string | undefined) => {
         if (name) {
             setActiveTab(name);
             console.log(chalk.green(`Switched to tab: ${name}`));
@@ -156,7 +249,7 @@ program
 program
     .command('tab-rm <name>')
     .description('Remove a tab and all its tasks.')
-    .action((name) => {
+    .action((name: string) => {
         deleteTab(name);
         console.log(chalk.red(`Tab removed: ${name}`));
         listTasks();
@@ -167,7 +260,7 @@ program
     .alias('tab-mv')
     .alias('tab-edit')
     .description('Rename an existing tab.')
-    .action((oldName, newName) => {
+    .action((oldName: string, newName: string) => {
         const success = renameTab(oldName, newName);
         if (success) {
             console.log(chalk.green(`Tab renamed from '${oldName}' to '${newName}'`));
