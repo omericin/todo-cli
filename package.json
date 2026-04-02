@@ -1,6 +1,6 @@
 {
   "name": "@omericin/todo-cli",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/omericin/todo-cli.git"
