@@ -14,7 +14,9 @@ import {
     getActiveGroup,
     setActiveGroup,
     setGroupCollapsed,
-    deleteGroup
+    deleteGroup,
+    getConfig,
+    setConfig
 } from './storage.js';
 import { getIcon } from './theme.js';
 import { spawn } from 'child_process';
@@ -34,6 +36,8 @@ const listTasks = () => {
     const activeTab = getActiveTab();
     const groups = getGroups();
     const activeGroup = getActiveGroup();
+    const config = getConfig();
+    const useNerdFonts = config?.useNerdFonts ?? false;
 
     const tabHeaders = tabs.map(t => {
         if (t === activeTab) {
@@ -93,7 +97,12 @@ const listTasks = () => {
     // Render grouped tasks
     allGroupNames.forEach(name => {
         const collapsed = groups[name]?.collapsed || false;
-        const icon = collapsed ? '▶' : '▼';
+        let icon: string;
+        if (useNerdFonts) {
+            icon = collapsed ? '▶' : '▼';
+        } else {
+            icon = collapsed ? '>' : 'v';
+        }
         const activeLabel = name === activeGroup ? chalk.dim(' (active)') : '';
 
         console.log(`${chalk.yellow(icon)} ${chalk.bold(name)}${activeLabel}`);
@@ -268,6 +277,21 @@ program
             console.log(chalk.red(`Failed to rename tab. Does '${oldName}' exist or is '${newName}' already taken?`));
         }
         listTasks();
+    });
+
+program
+    .command('config <key> <value>')
+    .description('Configure settings. e.g., todo config nerd-fonts off')
+    .action((key: string, value: string) => {
+        const config = getConfig();
+        if (key === 'nerd-fonts' || key === 'nerdfonts') {
+            const enabled = value === 'on' || value === 'true' || value === '1';
+            config.useNerdFonts = enabled;
+            setConfig(config);
+            console.log(chalk.green(`Nerd Fonts ${enabled ? 'enabled' : 'disabled'}.`));
+        } else {
+            console.log(chalk.red(`Unknown config key: ${key}`));
+        }
     });
 
 // Handle 'todo' without commands to list tasks by default
