@@ -24,12 +24,17 @@ import os from 'os';
 import fs from 'fs';
 import path from 'path';
 
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json');
+
 const program = new Command();
 
 program
     .name('todo')
     .description('A high-performance, minimalist Todo CLI for macOS')
-    .version('1.1.0');
+    .version(pkg.version);
 
 const listTasks = () => {
     const tabs = getAllTabNames();
